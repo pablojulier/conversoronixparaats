@@ -1,0 +1,162 @@
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Conversor Relatório Analítico → ATS</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+body{font-family:Arial,sans-serif;max-width:1000px;margin:auto;padding:20px;background:#f5f7fa}
+#dropZone{border:3px dashed #2563eb;border-radius:15px;padding:60px;text-align:center;background:white;color:#2563eb;font-size:20px;cursor:pointer}
+#dropZone.drag{background:#dbeafe}
+button{margin-top:20px;padding:12px 25px;font-size:16px}
+#status{margin-top:15px;font-weight:bold}
+table{margin-top:20px;border-collapse:collapse;width:100%;background:white}
+th,td{border:1px solid #ccc;padding:6px;font-size:12px}
+</style>
+</head>
+<body>
+
+<h2>Conversor Relatório Analítico → ATS</h2>
+
+<div id="dropZone">
+Arraste o arquivo XLS/XLSX aqui<br>
+ou clique para selecionar
+<input type="file" id="arquivo" accept=".xls,.xlsx" hidden>
+</div>
+
+<button onclick="converter()">Converter e Baixar XLSX</button>
+
+<div id="status"></div>
+<div id="preview"></div>
+
+<script>
+let arquivoSelecionado=null;
+
+const dz=document.getElementById('dropZone');
+const inp=document.getElementById('arquivo');
+
+dz.onclick=()=>inp.click();
+
+inp.onchange=e=>{
+ arquivoSelecionado=e.target.files[0];
+ dz.innerHTML='✓ '+arquivoSelecionado.name;
+};
+
+dz.addEventListener('dragover',e=>{
+ e.preventDefault();
+ dz.classList.add('drag');
+});
+
+dz.addEventListener('dragleave',()=>dz.classList.remove('drag'));
+
+dz.addEventListener('drop',e=>{
+ e.preventDefault();
+ dz.classList.remove('drag');
+ arquivoSelecionado=e.dataTransfer.files[0];
+ dz.innerHTML='✓ '+arquivoSelecionado.name;
+});
+
+function pad(v){return String(v).padStart(2,'0');}
+
+function formatarDataHora(data,hora){
+ let d = data instanceof Date ? data : new Date(data);
+
+ if(isNaN(d)) return String(data)+' '+String(hora);
+
+ let hh='00', mm='00';
+
+ if(hora instanceof Date){
+   hh=pad(hora.getHours());
+   mm=pad(hora.getMinutes());
+ }else{
+   let p=String(hora).split(':');
+   hh=pad(p[0]||0);
+   mm=pad(p[1]||0);
+ }
+
+ return `${pad(d.getDate())}/${pad(d.getMonth()+1)}/${String(d.getFullYear()).slice(-2)} ${hh}:${mm}`;
+}
+
+function converter(){
+
+ if(!arquivoSelecionado){
+   alert('Selecione um arquivo.');
+   return;
+ }
+
+ const reader=new FileReader();
+
+ reader.onload=function(e){
+
+   const wb=XLSX.read(e.target.result,{type:'array',cellDates:true});
+   const ws=wb.Sheets[wb.SheetNames[0]];
+   const dados=XLSX.utils.sheet_to_json(ws,{defval:''});
+
+   const resultado=[];
+   const chavesUnicas=new Set();
+   let removidas=0;
+
+   dados.forEach(l=>{
+
+      const lat=String(l['Latitude']).replace(',','.');
+      const lon=String(l['Longitude']).replace(',','.');
+      const vel=String(l['Velocidade (Km/h)'] || 0);
+
+      // Remove duplicados por LAT + LONG + VELOCIDADE
+      const chave = lat + "|" + lon + "|" + vel;
+
+      if(chavesUnicas.has(chave)){
+         removidas++;
+         return;
+      }
+
+      chavesUnicas.add(chave);
+
+      const dataHora=formatarDataHora(l['Data'],l['Hora']);
+
+      resultado.push({
+        'Latitude':lat,
+        'Longitude':lon,
+        'Data/Hora Geração':dataHora,
+        'Data/Hora Cadastro':dataHora,
+        'Atrasada':'',
+        'Referência':l['Localização'] || '',
+        'Ignição':'',
+        'Velocidade':vel,
+        'Tipo de Comunicação':''
+      });
+   });
+
+   const nova=XLSX.utils.json_to_sheet(resultado);
+   const out=XLSX.utils.book_new();
+   XLSX.utils.book_append_sheet(out,nova,'ATS');
+
+   XLSX.writeFile(out,'ATS_convertido.xlsx');
+
+   document.getElementById('status').innerHTML =
+      'Conversão concluída.<br>' +
+      'Registros exportados: ' + resultado.length +
+      '<br>Duplicados removidos: ' + removidas;
+
+   let html='<table><tr>';
+   Object.keys(resultado[0]||{}).forEach(c=>html+='<th>'+c+'</th>');
+   html+='</tr>';
+
+   resultado.slice(0,10).forEach(r=>{
+      html+='<tr>';
+      Object.values(r).forEach(v=>html+='<td>'+v+'</td>');
+      html+='</tr>';
+   });
+
+   html+='</table>';
+   document.getElementById('preview').innerHTML=html;
+ };
+
+ reader.readAsArrayBuffer(arquivoSelecionado);
+}
+</script>
+
+</body>
+</html>
